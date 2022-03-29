@@ -56,19 +56,7 @@
 #define set_xen_guest_handle_raw(hnd, val)  do { (hnd).p = val; } while (0)
 #define set_xen_guest_handle(hnd, val) set_xen_guest_handle_raw(hnd, val)
 
-#if defined(__i386__)
-# ifdef __XEN__
-__DeFiNe__ __DECL_REG_LO8(which) uint32_t e ## which ## x
-__DeFiNe__ __DECL_REG_LO16(name) union { uint32_t e ## name; }
-# endif
-#include "xen-x86_32.h"
-# ifdef __XEN__
-__UnDeF__ __DECL_REG_LO8
-__UnDeF__ __DECL_REG_LO16
-__DeFiNe__ __DECL_REG_LO8(which) e ## which ## x
-__DeFiNe__ __DECL_REG_LO16(name) e ## name
-# endif
-#elif defined(__x86_64__)
+#if defined(__x86_64__)
 #include "xen-x86_64.h"
 #endif
 
@@ -193,12 +181,6 @@ struct vcpu_guest_context {
     /* NB. User pagetable on x86/64 is placed in ctrlreg[1]. */
     unsigned long ctrlreg[8];               /* CR0-CR7 (control registers)  */
     unsigned long debugreg[8];              /* DB0-DB7 (debug registers)    */
-#ifdef __i386__
-    unsigned long event_callback_cs;        /* CS:EIP of event callback     */
-    unsigned long event_callback_eip;
-    unsigned long failsafe_callback_cs;     /* CS:EIP of failsafe callback  */
-    unsigned long failsafe_callback_eip;
-#else
     unsigned long event_callback_eip;
     unsigned long failsafe_callback_eip;
 #ifdef __XEN__
@@ -211,7 +193,6 @@ struct vcpu_guest_context {
     };
 #else
     unsigned long syscall_callback_eip;
-#endif
 #endif
     unsigned long vm_assist;                /* VMASST_TYPE_* bitmap */
 #ifdef __x86_64__
@@ -260,10 +241,6 @@ struct arch_shared_info {
     unsigned long p2m_cr3;         /* cr3 value of the p2m address space */
     unsigned long p2m_vaddr;       /* virtual address of the p2m list */
     unsigned long p2m_generation;  /* generation count of p2m mapping */
-#ifdef __i386__
-    /* There's no room for this field in the generic structure. */
-    uint32_t wc_sec_hi;
-#endif
 };
 typedef struct arch_shared_info arch_shared_info_t;
 

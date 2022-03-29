@@ -613,7 +613,7 @@ struct xen_domctl_ext_vcpucontext {
      * GET: Size of struct (OUT, up to 128 bytes)
      */
     uint32_t         size;
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
     /* SYSCALL from 32-bit mode and SYSENTER callback information. */
     /* NB. SYSCALL from 64-bit mode is contained in vcpu_guest_context_t */
     uint64_aligned_t syscall32_callback_eip;
@@ -641,7 +641,7 @@ struct xen_domctl_set_target {
     domid_t target;
 };
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 # define XEN_CPUID_INPUT_UNUSED  0xFFFFFFFF
 /* XEN_DOMCTL_set_cpuid */
 struct xen_domctl_cpuid {
@@ -855,7 +855,7 @@ struct xen_domctl_set_virq_handler {
     uint32_t virq; /* IN */
 };
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 /* XEN_DOMCTL_setvcpuextstate */
 /* XEN_DOMCTL_getvcpuextstate */
 struct xen_domctl_vcpuextstate {
@@ -908,7 +908,7 @@ struct xen_domctl_cacheflush {
     xen_pfn_t start_pfn, nr_pfns;
 };
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 struct xen_domctl_vcpu_msr {
     uint32_t         index;
     uint32_t         reserved;
@@ -1228,7 +1228,7 @@ struct xen_domctl {
         struct xen_domctl_debug_op          debug_op;
         struct xen_domctl_vm_event_op       vm_event_op;
         struct xen_domctl_mem_sharing_op    mem_sharing_op;
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
         struct xen_domctl_cpuid             cpuid;
         struct xen_domctl_vcpuextstate      vcpuextstate;
         struct xen_domctl_vcpu_msrs         vcpu_msrs;

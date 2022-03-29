@@ -50,7 +50,7 @@
  * Domain = val[47:32], Bus = val[31:16] DevFn = val[15:8], IntX = val[1:0]
  */
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 #define HVM_PARAM_CALLBACK_TYPE_VECTOR   2
 /*
  * val[7:0] is a vector number.  Check for XENFEAT_hvm_callback_vector to know
@@ -85,7 +85,7 @@
 #define HVM_PARAM_BUFIOREQ_PFN 6
 #define HVM_PARAM_BUFIOREQ_EVTCHN 26
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 
 /*
  * Viridian enlightenments

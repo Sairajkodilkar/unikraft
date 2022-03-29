@@ -58,7 +58,7 @@
 
 #include "xen.h"
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 #define KEXEC_XEN_NO_PAGES 17
 #endif
 
@@ -94,7 +94,7 @@
  */
  
 typedef struct xen_kexec_image {
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
     unsigned long page_list[KEXEC_XEN_NO_PAGES];
 #endif
     unsigned long indirection_page;

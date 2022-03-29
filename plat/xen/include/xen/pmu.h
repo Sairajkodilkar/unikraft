@@ -24,7 +24,7 @@
 #define __XEN_PUBLIC_PMU_H__
 
 #include "xen.h"
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 #include "arch-x86/pmu.h"
 #elif defined (__arm__) || defined (__aarch64__)
 #include "arch-arm.h"

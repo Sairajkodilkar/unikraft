@@ -173,7 +173,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_hvm_get_mem_type_t);
 
 #endif /* defined(__XEN__) || defined(__XEN_TOOLS__) */
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__)
 
 /*
  * HVMOP_set_evtchn_upcall_vector: Set a <vector> that should be used for event
@@ -190,7 +190,7 @@ struct xen_hvm_evtchn_upcall_vector {
 typedef struct xen_hvm_evtchn_upcall_vector xen_hvm_evtchn_upcall_vector_t;
 DEFINE_XEN_GUEST_HANDLE(xen_hvm_evtchn_upcall_vector_t);
 
-#endif /* defined(__i386__) || defined(__x86_64__) */
+#endif /* defined(__x86_64__) */
 
 #define HVMOP_guest_request_vm_event 24
 
