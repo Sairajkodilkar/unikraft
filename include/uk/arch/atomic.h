@@ -57,6 +57,14 @@ extern "C" {
 	__atomic_fetch_add(src, value, __ATOMIC_SEQ_CST)
 
 /**
+ * Perform a atomic add/sub and fetch operation
+ */
+#define ukarch_add_fetch(src, value) \
+	__atomic_add_fetch(src, value, __ATOMIC_SEQ_CST)
+#define ukarch_sub_fetch(src, value) \
+	__atomic_sub_fetch(src, value, __ATOMIC_SEQ_CST)
+
+/**
  * Perform a atomic increment/decrement operation and return the
  * previous value.
  */
