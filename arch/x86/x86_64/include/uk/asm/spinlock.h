@@ -36,14 +36,17 @@
 
 struct __spinlock {
 	volatile int lock;
+	unsigned int irqf;
 };
 
 /* Initialize a spinlock to unlocked state */
+/* TODO: discuss the use of of this initializer */
 #define UKARCH_SPINLOCK_INITIALIZER() { 0 }
 
 static inline void ukarch_spin_init(struct __spinlock *lock)
 {
 	lock->lock = 0;
+	lock->irqf = 0;
 }
 
 static inline void ukarch_spin_lock(struct __spinlock *lock)

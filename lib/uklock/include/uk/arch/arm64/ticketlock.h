@@ -45,6 +45,7 @@ typedef struct __ticketlock __ticketlock;
 struct __align(8) __ticketlock {
 	__u16	current; /* currently served */
 	__u16	next;	 /* next available ticket */
+	unsigned int irqf;
 } __packed;
 
 /* Initialize a ticketlock to unlocked state */
@@ -54,6 +55,7 @@ static inline void ukarch_ticket_init(struct __ticketlock *lock)
 {
 	lock->next = 0;
 	lock->current = 0;
+	lock->irqf = 0;
 }
 
 static inline void ukarch_ticket_lock(struct __ticketlock *lock)
