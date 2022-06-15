@@ -42,7 +42,7 @@ struct __align(8) __spinlock {
 };
 
 /* Initialize a spinlock to unlocked state */
-#define UKARCH_SPINLOCK_INITIALIZER() { 0 }
+#define UKARCH_SPINLOCK_INITIALIZER() { 0, 0 }
 
 static inline void ukarch_spin_init(struct __spinlock *lock)
 {
