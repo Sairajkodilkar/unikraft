@@ -91,7 +91,7 @@ int ukarch_spin_is_locked(__spinlock *lock);
  * succeeds and asserting that a lock is held returns false.
  */
 typedef struct __spinlock {
-	/* empty */
+	unsigned int irqf;
 } __spinlock;
 
 #define UKARCH_SPINLOCK_INITIALIZER()	{}
