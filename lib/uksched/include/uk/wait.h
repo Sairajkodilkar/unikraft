@@ -39,7 +39,8 @@ extern "C" {
 static inline
 void uk_waitq_init(struct uk_waitq *wq)
 {
-	UK_STAILQ_INIT(wq);
+	uk_spin_init(&(wq->sl));
+	UK_STAILQ_INIT(&(wq->wait_list));
 }
 
 static inline
@@ -53,27 +54,31 @@ void uk_waitq_entry_init(struct uk_waitq_entry *entry,
 static inline
 int uk_waitq_empty(struct uk_waitq *wq)
 {
-	return UK_STAILQ_EMPTY(wq);
+	return UK_STAILQ_EMPTY(&(wq->wait_list));
 }
 
 static inline
 void uk_waitq_add(struct uk_waitq *wq,
 		struct uk_waitq_entry *entry)
 {
+	uk_spin_lock_irqfsave(&(wq->sl));
 	if (!entry->waiting) {
-		UK_STAILQ_INSERT_TAIL(wq, entry, thread_list);
+		UK_STAILQ_INSERT_TAIL(&(wq->wait_list), entry, thread_list);
 		entry->waiting = 1;
 	}
+	uk_spin_unlock_irqfrestore(&(wq->sl));
 }
 
 static inline
 void uk_waitq_remove(struct uk_waitq *wq,
 		struct uk_waitq_entry *entry)
 {
+	uk_spin_lock_irqfsave(&(wq->sl));
 	if (entry->waiting) {
-		UK_STAILQ_REMOVE(wq, entry, struct uk_waitq_entry, thread_list);
+		UK_STAILQ_REMOVE(&(wq->wait_list), entry, struct uk_waitq_entry, thread_list);
 		entry->waiting = 0;
 	}
+	uk_spin_unlock_irqfrestore(&(wq->sl));
 }
 
 #define uk_waitq_add_waiter(wq, w) \
@@ -93,6 +98,10 @@ do { \
 	ukplat_lcpu_restore_irqf(flags); \
 } while (0)
 
+/* TODO investigate uk_sched_thread_blocked
+ * is clear_runnable critical
+ * is uk_sched_thread_blocked critical
+ */
 #define __wq_wait_event_deadline(wq, condition, deadline, deadline_condition, \
 				 lock_fn, unlock_fn, lock) \
 ({ \
@@ -161,13 +170,12 @@ static inline void __lock_dummy(void *lock __unused) {}
 static inline
 void uk_waitq_wake_up(struct uk_waitq *wq)
 {
-	unsigned long flags;
 	struct uk_waitq_entry *curr, *tmp;
 
-	flags = ukplat_lcpu_save_irqf();
-	UK_STAILQ_FOREACH_SAFE(curr, wq, thread_list, tmp)
+	uk_spin_lock_irqfsave(&(wq->sl));
+	UK_STAILQ_FOREACH_SAFE(curr, &(wq->wait_list), thread_list, tmp)
 		uk_thread_wake(curr->thread);
-	ukplat_lcpu_restore_irqf(flags);
+	uk_spin_unlock_irqfrestore(&(wq->sl));
 }
 
 #ifdef __cplusplus
