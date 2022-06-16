@@ -74,29 +74,30 @@ extern "C" {
 
 #endif	/* CONFIG_LIBUKLOCK_TICKETLOCK */
 
-#define uk_spin_lock_irqfsave(lock) { \
-	(lock)->irqf = ukplat_lcpu_save_irqf(); \
+#define uk_spin_lock_irqf(lock) ({ \
+	unsigned int __irqf = ukplat_lcpu_save_irqf(); \
 	uk_spin_lock(lock); \
-}
+	__irqf; \
+})
 
-#define uk_spin_unlock_irqfrestore(lock) { \
+#define uk_spin_unlock_irqf(lock, irqf) ({ \
 	uk_spin_unlock(lock); \
-	ukplat_lcpu_restore_irqf((lock)->irqf); \
-}
+	ukplat_lcpu_restore_irqf(irqf); \
+})
 
-#define uk_spin_trylock_irqf(lock) { \
-	lock->irqf = ukplat_lcpu_save_irqf(); \
+#define uk_spin_trylock_irqf(lock) ({ \
+	unsigned int __irqf = ukplat_lcpu_save_irqf(); \
 	int r = uk_spin_trylock(lock); \
-	ukplat_lcpu_restore_irqf((lock)->irqf); \
+	ukplat_lcpu_restore_irqf(__irqf); \
 	r; \
-}
+})
 
-#define uk_spin_is_locked_irqf(lock) { \
-	(lock)->irqf = ukplat_lcpu_save_irqf(); \
+#define uk_spin_is_locked_irqf(lock) ({ \
+	unsigned int __irqf = ukplat_lcpu_save_irqf(); \
 	int r = uk_spin_is_locked(lock); \
-	ukplat_lcpu_restore_irqf((lock)->irqf); \
+	ukplat_lcpu_restore_irqf(__irqf); \
 	r; \
-}
+})
 
 #ifdef __cplusplus
 }

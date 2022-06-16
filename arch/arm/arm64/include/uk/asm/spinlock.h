@@ -38,7 +38,6 @@
 
 struct __align(8) __spinlock {
 	volatile int lock;
-	unsigned int irq;
 };
 
 /* Initialize a spinlock to unlocked state */

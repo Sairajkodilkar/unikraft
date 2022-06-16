@@ -61,24 +61,24 @@ static inline
 void uk_waitq_add(struct uk_waitq *wq,
 		struct uk_waitq_entry *entry)
 {
-	uk_spin_lock_irqfsave(&(wq->sl));
+	unsigned int irqf = uk_spin_lock_irqf(&(wq->sl));
 	if (!entry->waiting) {
 		UK_STAILQ_INSERT_TAIL(&(wq->wait_list), entry, thread_list);
 		entry->waiting = 1;
 	}
-	uk_spin_unlock_irqfrestore(&(wq->sl));
+	uk_spin_unlock_irqf(&(wq->sl), irqf);
 }
 
 static inline
 void uk_waitq_remove(struct uk_waitq *wq,
 		struct uk_waitq_entry *entry)
 {
-	uk_spin_lock_irqfsave(&(wq->sl));
+	unsigned int irqf = uk_spin_lock_irqf(&(wq->sl));
 	if (entry->waiting) {
 		UK_STAILQ_REMOVE(&(wq->wait_list), entry, struct uk_waitq_entry, thread_list);
 		entry->waiting = 0;
 	}
-	uk_spin_unlock_irqfrestore(&(wq->sl));
+	uk_spin_unlock_irqf(&(wq->sl), irqf);
 }
 
 #define uk_waitq_add_waiter(wq, w) \
@@ -172,10 +172,10 @@ void uk_waitq_wake_up(struct uk_waitq *wq)
 {
 	struct uk_waitq_entry *curr, *tmp;
 
-	uk_spin_lock_irqfsave(&(wq->sl));
+	unsigned int irqf = uk_spin_lock_irqf(&(wq->sl));
 	UK_STAILQ_FOREACH_SAFE(curr, &(wq->wait_list), thread_list, tmp)
 		uk_thread_wake(curr->thread);
-	uk_spin_unlock_irqfrestore(&(wq->sl));
+	uk_spin_unlock_irqf(&(wq->sl), irqf);
 }
 
 #ifdef __cplusplus

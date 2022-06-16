@@ -36,7 +36,6 @@
 
 struct __spinlock {
 	volatile int lock;
-	unsigned int irqf;
 };
 
 /* Initialize a spinlock to unlocked state */

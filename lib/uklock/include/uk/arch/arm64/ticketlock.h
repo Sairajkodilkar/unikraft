@@ -45,7 +45,6 @@ typedef struct __ticketlock __ticketlock;
 struct __align(8) __ticketlock {
 	__u16	current; /* currently served */
 	__u16	next;	 /* next available ticket */
-	unsigned int irqf;
 } __packed;
 
 /* Initialize a ticketlock to unlocked state */
