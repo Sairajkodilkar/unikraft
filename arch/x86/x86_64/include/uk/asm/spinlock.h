@@ -45,7 +45,6 @@ struct __spinlock {
 static inline void ukarch_spin_init(struct __spinlock *lock)
 {
 	lock->lock = 0;
-	lock->irqf = 0;
 }
 
 static inline void ukarch_spin_lock(struct __spinlock *lock)

@@ -46,7 +46,6 @@ struct __align(8) __spinlock {
 static inline void ukarch_spin_init(struct __spinlock *lock)
 {
 	lock->lock = 0;
-	lock->irq = 0;
 }
 
 static inline void ukarch_spin_lock(struct __spinlock *lock)
