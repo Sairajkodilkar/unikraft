@@ -1,0 +1,18 @@
+choice
+	prompt "Select lock premitive"
+	default TEST_SPINLOCK
+	help
+		Select the lock premitive to be tested
+
+	config TEST_SPINLOCK
+		bool "spinlock"
+
+	config TEST_MUTEX
+		bool "mutex"
+	
+	config TEST_SEMAPHORE
+		bool "semaphore"
+
+endchoice
+
+		
