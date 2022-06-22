@@ -105,12 +105,9 @@ do { \
 #define __wq_wait_event_deadline(wq, condition, deadline, deadline_condition, \
 				 lock_fn, unlock_fn, lock) \
 ({ \
-	struct uk_thread *__current; \
 	unsigned long flags; \
 	int timedout = 0; \
-	DEFINE_WAIT(__wait); \
 	if (!(condition)) { \
-		__current = uk_thread_current(); \
 		for (;;) { \
 			/* protect the list */ \
 			flags = ukplat_lcpu_save_irqf(); \
@@ -118,14 +115,9 @@ do { \
 				ukplat_lcpu_restore_irqf(flags); \
 				break; \
 			} \
-			uk_waitq_add(wq, &__wait); \
-			__current->wakeup_time = deadline; \
-			clear_runnable(__current); \
-			uk_sched_thread_blocked(__current->sched, __current); \
 			ukplat_lcpu_restore_irqf(flags); \
 			if (lock) \
 				unlock_fn(lock); \
-			uk_sched_yield(); \
 			if (lock) \
 				lock_fn(lock); \
 			if (condition) \
@@ -137,8 +129,6 @@ do { \
 		} \
 		flags = ukplat_lcpu_save_irqf(); \
 		/* need to wake up */ \
-		uk_thread_wake(__current); \
-		uk_waitq_remove(wq, &__wait); \
 		ukplat_lcpu_restore_irqf(flags); \
 	} \
 	timedout; \

@@ -141,7 +141,6 @@ static inline void uk_semaphore_up(struct uk_semaphore *s)
 	uk_pr_debug("Increased semaphore %p to %ld\n",
 			s, s->count);
 #endif
-	uk_waitq_wake_up(&s->wait);
 	uk_spin_unlock_irqf(&(s->sl), irqf);
 }
 

@@ -185,7 +185,6 @@ static inline void uk_mutex_unlock(struct uk_mutex *m)
 	if (ukarch_sub_fetch(&(m->lock_count), 1) == 0) {
 		m->owner = NULL;
 		/* TODO make waitq operation SMP safe */
-		uk_waitq_wake_up(&m->wait);
 	}
 
 #ifdef CONFIG_LIBUKLOCK_MUTEX_METRICS
