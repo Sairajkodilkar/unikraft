@@ -106,6 +106,15 @@ struct uk_thread *uk_thread_current(void)
 	return *current;
 }
 
+static inline
+unsigned long uk_get_stack_bottom(void)
+{
+	unsigned long sp = ukarch_read_sp();
+
+	return sp & STACK_MASK_TOP;
+}
+
+
 #define RUNNABLE_FLAG   0x00000001
 #define EXITED_FLAG     0x00000002
 #define QUEUEABLE_FLAG  0x00000004
