@@ -24,10 +24,6 @@
 #define OWNER(x)					(x & ~FLAG_MASK)
 
 struct uk_rwlock {
-	/* TODO: discuss that should we store struc thread ** since it would give us
-	 * 12 free bits which can be used for storing flags resulting in lower
-	 * memory usage
-	 */
 	volatile uintptr_t rwlock;
 	unsigned int write_recurse;
 	struct uk_waitq shared;
@@ -36,26 +32,42 @@ struct uk_rwlock {
 
 void uk_rwlock_init(struct uk_rwlock *rwl);
 
-static inline void uk_rwlock_rlock(struct uk_rwlock *rwl)
+static inline 
+bool _rw_can_read(unsigned int rwlock)
 {
-	uintptr_t v, setv;
+	if(rwlock & (UK_RWLOCK_READ | UK_RWLOCK_WRITE_WAITERS | UK_RWLOCK_WRITE_SPINNERS)
+			== UK_RWLOCK_READ) {
+		return true;
+	}
+	return false
+}
+
+static inline 
+void uk_rwlock_rlock(struct uk_rwlock *rwl)
+{
+	uintptr_t v, setv, rwait;
 
 	v = rwl->rwlock;
 
 	for(;;) {
 
-		if(v & UK_RWLOCK_READ) {
+		if(_rw_can_read(v)) {
 			setv = v + RW_ONE_READER;
 			if(ukarch_compare_exchange_sync(&rwl->lock, v, setv) == setv) {
-				//TODO: change flags here
 				break;
 			}
 		}
 
-		/* TODO: handle waiter flag */
-		uk_waitq_wait_event(&rwl->shared, (rwl->rwlock & UK_RWLOCK_READ));
+		if(!(v & UK_RWLOCK_READ_WAITERS)) {
+			rwait = v | UK_RWLOCK_READ_WAITERS;
+			while(ukarch_compare_exchange_sync(&rwl->lock, v, rwait) != rwait) {
+				v = rwl->rwlock;
+				rwait = v | UK_RWLOCK_READ_WAITERS;
+			}
+		}
 
-		v = READ_ONCE(rwl->rwlock);
+		uk_waitq_wait_event(&rwl->shared, (rwl->rwlock & UK_RWLOCK_READ));
+		v = rwl->rwlock;
 	}
 	return;
 }
@@ -68,7 +80,7 @@ static inline void uk_rwlock_wlock(struct uk_rwlock *rwl)
 	v = rwl->rwlock;
 
 	if(~(v & UK_RWLOCK_READ) && unlikely(OWNER(v) == stackbottom)) {
-		ukarch_inc(rwl->write_recurse);
+		ukarch_inc(&(rwl->write_recurse));
 		return;
 	}
 
@@ -82,8 +94,16 @@ static inline void uk_rwlock_wlock(struct uk_rwlock *rwl)
 				break;
 			}
 		}
-		/*TODO: handle waiter flags */
-		uk_waitq_wait_event(&rwl->exclusive, ((rwl->rwlock & ~mask) == UK_RW_UNLOCK))
+
+		if(!(v & UK_RWLOCK_WRITE_WAITERS)) {
+			rwait = v | UK_RWLOCK_WRITE_WAITERS;
+			while(ukarch_compare_exchange_sync(&rwl->lock, v, rwait) != rwait) {
+				v = rwl->rwlock;
+				rwait = v | UK_RWLOCK_WRITE_WAITERS;
+			}
+		}
+
+		uk_waitq_wait_event(&rwl->exclusive, ((rwl->rwlock & ~mask) == UK_RW_UNLOCK));
 		v = rwl->rwlock;
 	}
 }
