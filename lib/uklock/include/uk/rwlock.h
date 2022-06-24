@@ -60,7 +60,7 @@ static inline void uk_rwlock_rlock(struct uk_rwlock *rwl)
 	return;
 }
 
-static inline void uk_rwlock_runlock(struct uk_rwlock *rwl)
+static inline void uk_rwlock_wlock(struct uk_rwlock *rwl)
 {
 	uintptr_t v, setv, mask;
 	uintptr_t stackbottom = uk_get_stack_bottom();
@@ -74,7 +74,7 @@ static inline void uk_rwlock_runlock(struct uk_rwlock *rwl)
 
 	for(;;) {
 
-		mask = v & (UK_RWLOCK_WAITERS & UK_RWLOCK_WRITE_SPINNERS); 
+		mask = v & (UK_RWLOCK_WAITERS & UK_RWLOCK_WRITE_SPINNERS);
 		setv = mask | stackbottom | ~UK_RWLOCK_READ;
 
 		if(v & ~mask == UK_RW_UNLOCK) {
@@ -88,7 +88,7 @@ static inline void uk_rwlock_runlock(struct uk_rwlock *rwl)
 	}
 }
 
-static inline void uk_rwlock_wlock(struct uk_rwlock *rwl);
+static inline void uk_rwlock_runlock(struct uk_rwlock *rwl);
 static inline void uk_rwlock_wunlock(struct uk_rwlock *rwl);
 
 static inline void uk_rwlock_upgrade(struct uk_rwlock *rwl);
