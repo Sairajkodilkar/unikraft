@@ -21,6 +21,7 @@
 
 #define UK_RW_READERS_LOCK(x)		((x) << READERS_SHIFT | UK_RWLOCK_READ)
 #define UK_RW_ONE_READER			(1 << READERS_SHIFT)
+#define UK_RW_READERS(x)			((x) >> READERS_SHIFT)
 
 #define UK_RW_UNLOCK				(UK_RW_READERS_LOCK(0))
 #define OWNER(x)					(x & ~FLAG_MASK)
@@ -37,8 +38,10 @@ void uk_rwlock_init(struct uk_rwlock *rwl);
 static inline 
 bool _rw_can_read(unsigned int rwlock)
 {
+	/* Give priority to the writers */
 	if(rwlock & (UK_RWLOCK_READ | UK_RWLOCK_WRITE_WAITERS 
 				| UK_RWLOCK_WRITE_SPINNERS) == UK_RWLOCK_READ) {
+		/* Success when there are no write pending */
 		return true;
 	}
 	return false
@@ -53,45 +56,55 @@ void uk_rwlock_rlock(struct uk_rwlock *rwl)
 
 	for(;;) {
 
-		if(_rw_can_read(v)) {
+		while(_rw_can_read(v)) {
 			setv = v + UK_RW_ONE_READER;
 			if(ukarch_compare_exchange_sync(&rwl->lock, v, setv) == setv) {
 				break;
 			}
 		}
 
+		/* Either the writer has the lock or the writer is waiting */
+
 		if(!(v & UK_RWLOCK_READ_WAITERS)) {
-			rwait = v | UK_RWLOCK_READ_WAITERS;
-			while(ukarch_compare_exchange_sync(&rwl->lock, v, rwait) != rwait) {
+			setv = v | UK_RWLOCK_READ_WAITERS;
+			while(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) != setv) {
 				v = rwl->rwlock;
-				rwait = v | UK_RWLOCK_READ_WAITERS;
+				setv = v | UK_RWLOCK_READ_WAITERS;
 			}
 		}
 
-		uk_waitq_wait_event(&rwl->shared, (rwl->rwlock & UK_RWLOCK_READ));
+		uk_waitq_wait_event(&rwl->shared, _rw_can_read(rwl->rwlock));
 		v = rwl->rwlock;
 	}
 	return;
 }
 
-static inline void uk_rwlock_wlock(struct uk_rwlock *rwl)
+static inline
+void uk_rwlock_wlock(struct uk_rwlock *rwl)
 {
 	uintptr_t v, setv, mask;
 	uintptr_t stackbottom = uk_get_stack_bottom();
 
 	v = rwl->rwlock;
 
-	if(~(v & UK_RWLOCK_READ) && unlikely(OWNER(v) == stackbottom)) {
+	/* If the lock is not held by reader and owner of the lock is current
+	 * thread then simply increment the write recurse count
+	 */
+	if(~(v & UK_RWLOCK_READ) && OWNER(v) == stackbottom) {
 		ukarch_inc(&(rwl->write_recurse));
 		return;
 	}
 
 	for(;;) {
 
-		mask = v & (UK_RWLOCK_WAITERS | UK_RWLOCK_WRITE_SPINNERS);
-		setv = (mask | stackbottom) & ~UK_RWLOCK_READ;
+		mask = v & (UK_RWLOCK_WAITERS | UK_RWLOCK_WRITE_SPINNERS | UK_RWLOCK_WRITE_RECURSED);
 
+		/* If there is no reader or no owner and read flag is set then we can
+		 * acquire that lock
+		 */
 		if(v & ~mask == UK_RW_UNLOCK) {
+			setv = mask | stackbottom;
+			/* Try to set the owner field and flag mask except reader flag*/
 			if(ukarch_compare_exchange_sync(&rwl->lock, v, setv) == setv) {
 				ukarch_inc(&(rwl->write_recurse));
 				break;
@@ -99,10 +112,10 @@ static inline void uk_rwlock_wlock(struct uk_rwlock *rwl)
 		}
 
 		if(!(v & UK_RWLOCK_WRITE_WAITERS)) {
-			rwait = v | UK_RWLOCK_WRITE_WAITERS;
-			while(ukarch_compare_exchange_sync(&rwl->lock, v, rwait) != rwait) {
+			setv = v | UK_RWLOCK_WRITE_WAITERS;
+			while(ukarch_compare_exchange_sync(&rwl->lock, v, setv) != setv) {
 				v = rwl->rwlock;
-				rwait = v | UK_RWLOCK_WRITE_WAITERS;
+				setv = v | UK_RWLOCK_WRITE_WAITERS;
 			}
 		}
 
@@ -111,106 +124,76 @@ static inline void uk_rwlock_wlock(struct uk_rwlock *rwl)
 	}
 }
 
-static inline
-bool _rwlock_runlock_try(struct uk_rwlock *rwl, uintptr_t v)
-{
-	for(;;) {
-		if(~(v & UK_RWLOCK_READ)|| UK_RWLOCK_READERS(v) == 0)
-			break;
-		setv = v - UK_RW_ONE_READER;
-		if(ukarch_compare_exchange_sync(rwl->rwlock, v, setv) == setv) {
-			return true;
-		}
-		v = rwl->rwlock;
-	}
 
-	return false;
-}
-
+/* FIXME: lost wakeup problem 
+ *			one solution: use deadline base waking up
+ */
 static inline
 void uk_rwlock_runlock(struct uk_rwlock *rwl)
 {
 	uintptr_t v, setv;
-	struct uk_waitq queue;
+	struct uk_waitq *queue = NULL;
 
 	v = rwl->rwlock;
 
-	if(!_rwlock_runlock_try(rwl, v))
+	if(~(v & UK_RWLOCK_READ))
 		return;
-
-	v = rwl->rwlock;
-
-_runlock_wakeup_waiters:
-
-	/* TODO handle readers count condition in the unlock try */
-	if(UK_RWLOCK_READERS(v) != 0 && !(v & UK_RWLOCK_WAITERS))
-		return;
-
-	queue = rwl->shared;
-	setv = UK_RW_UNLOCK;
-
-	if(v & UK_RWLOCK_WRITE_WAITERS) {
-		queue = rwl->exclusive;
-		setv |= (v & UK_RWLOCK_READ_WAITERS);
-	}
-
-	if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) != setv)
-		goto _runlock_wakeup_waiters;
-
-	uk_waitq_wake_up(&queue);
-
-	return;
-}
-
-static inline bool _rw_wunlock_try(struct uk_rwlock *rwl, uintptr_t v)
-{
-	if(v & UK_RWLOCK || unlikely(rwl->write_recurse == 0))
-		return false;
-
-	ukarch_dec(&(rwl->write_recurse));
 
 	for(;;) {
-		if(rwl->write_recurse == 0)
-			break;
-		setv = UK_RWLOCK_UNLOCK | (v & UK_RWLOCK_WAITERS);
+		setv = (v - UK_RW_ONE_READER) & ~(UK_RWLOCK_WAITERS);
+
+		if(UK_RW_READERS(setv) == 0 && v & UK_RWLOCK_WAITERS) {
+			queue = &rwl->shared;
+			if(v & UK_RWLOCK_WRITE_WAITERS) {
+				setv |= (v & UK_RWLOCK_READ_WAITERS);
+				queue = &rwl->exclusive;
+			}
+		}
+
 		if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv)
-			return true;
-		v = rwl->rlock;
+			break;
+
+		v = rwl->rwlock;
 	}
-	return false;
+
+	uk_waitq_wake_up(queue);
+
+	return;
 }
 
-static inline void uk_rwlock_wunlock(struct uk_rwlock *rwl){
-
+static inline
+void uk_rwlock_wunlock(struct uk_rwlock *rwl)
+{
+	uintptr_t v, stackbottom; 
 	v = rwl->rwlock;
-	stackbottom = uk_get_stack_bottom()
+	stackbottom = uk_get_stack_bottom();
 
-	/* TODO: check for owners */
-	if(OWNER(v) != stackbottom)
+	if((v & UK_RWLOCK_READ) || OWNER(v) != stackbottom)
 		return;
 
-	if(!_rw_wunlock_try(rwl, v))
+	/* Handle recursion */
+	if(ukarch_sub_fetch(&(rwl->write_recurse), 1) != 0)
 		return;
 
-	v = rwl->rwlock;
+	/* All recusive locks have been released, time to unlock*/
+	for(;;) {
+		setv = UK_RW_UNLOCK | 
+			(v & (UK_RWLOCK_WRITE_SPINNERS | UK_RWLOCK_WRITE_RECURSED));
 
-_wunlock_wakeup_waiters:
-	if(!(v & UK_RWLOCK_WAITERS))
-		return;
+		if(v & UK_RWLOCK_WRITE_WAITERS) {
+			setv |= (v & UK_RWLOCK_READ_WAITERS);
+			queue = &rwl->exclusive;
+		} else if(v & UK_RWLOCK_READ_WAITERS){
+			queue = &rwl->shared;
+		}
 
-	queue = rwl->shared;
-	setv = UK_RW_UNLOCK;
+		if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv)
+			break;
 
-	if(v & UK_RWLOCK_WRITE_WAITERS) {
-		queue = rwl->exclusive;
-		setv |= (v & UK_RWLOCK_READ_WAITERS);
+		v = rwl->rwlock;
 	}
 
-	if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) != setv)
-		goto _wunlock_wakeup_waiters;
-
-	uk_waitq_wake_up(&queue);
-	return;
+	uk_waitq_wake_up(queue);
 }
 
 static inline void uk_rwlock_upgrade(struct uk_rwlock *rwl);
