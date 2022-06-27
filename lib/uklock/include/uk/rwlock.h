@@ -30,13 +30,13 @@
 #define OWNER(x)		(x & ~FLAG_MASK)
 
 #define _rw_can_read(rwlock) \
-	(rwlock & (UK_RWLOCK_READ | UK_RWLOCK_WRITE_WAITERS)) == UK_RWLOCK_READ
+	((rwlock & (UK_RWLOCK_READ | UK_RWLOCK_WRITE_WAITERS)) == UK_RWLOCK_READ)
 
 #define _rw_can_write(rwlock) \
 	((rwlock & ~(UK_RWLOCK_WAITERS)) == UK_RW_UNLOCK)
 
 #define _rw_can_upgrade(rwlock) \
-	((rwlock & UK_RWLOCK_READ && UK_RW_READERS(rwlock)) == 1)
+	((rwlock & UK_RWLOCK_READ) && UK_RW_READERS(rwlock) == 1)
 
 struct __align(8) uk_rwlock {
 	uintptr_t rwlock;
@@ -47,21 +47,6 @@ struct __align(8) uk_rwlock {
 
 void uk_rwlock_init(struct uk_rwlock *rwl);
 
-static inline
-void _rwlock_set_flag(uintptr_t *rwlock, uintptr_t flag) {
-
-	uintptr_t v, setv;
-
-	for(;;) {
-		v = *rwlock;
-		setv = v | flag;
-		if((v & flag)
-				|| ukarch_compare_exchange_sync(rwlock, v, setv) == setv)
-			break;
-	}
-	return;
-}
-
 static inline 
 void uk_rwlock_rlock(struct uk_rwlock *rwl)
 {
@@ -71,6 +56,7 @@ void uk_rwlock_rlock(struct uk_rwlock *rwl)
 
 	for(;;) {
 
+		/* Try to increment the lock until we are in the read mode */
 		while(_rw_can_read(v)) {
 			setv = v + UK_RW_ONE_READER;
 			if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv) {
@@ -79,16 +65,18 @@ void uk_rwlock_rlock(struct uk_rwlock *rwl)
 		}
 
 		/* Set the read waiter flag if previously it is unset */
-		_rwlock_set_flag(&rwl->rwlock, UK_RWLOCK_READ_WAITERS);
+		if(!(rwl->rwlock & UK_RWLOCK_READ_WAITERS))
+			ukarch_or(&rwl->rwlock, UK_RWLOCK_READ_WAITERS);
 
 		/* Wait for the unlock event */
 		uk_waitq_wait_event(&rwl->shared, _rw_can_read(rwl->rwlock));
 
+		/* Reread the changed value of the lock */
 		v = rwl->rwlock;
 	}
 	return;
 }
-   
+
 static inline
 void uk_rwlock_wlock(struct uk_rwlock *rwl)
 {
@@ -109,18 +97,21 @@ void uk_rwlock_wlock(struct uk_rwlock *rwl)
 
 		/* If there is no reader or no owner and read flag is set then we can
 		 * acquire that lock
+		 * Try to set the owner field and flag mask except reader flag
 		 */
-		if(_rw_can_write(v)) {
-			setv = stackbottom | (v & UK_RWLOCK_WAITERS);
-			/* Try to set the owner field and flag mask except reader flag*/
-			if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv) {
-				ukarch_inc(&(rwl->write_recurse));
-				break;
-			}
+		setv = stackbottom | (v & UK_RWLOCK_WAITERS);
+
+		if(_rw_can_write(v)
+				&& ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv) {
+
+			ukarch_inc(&(rwl->write_recurse));
+			break;
 		}
 
-		_rwlock_set_flag(&rwl->rwlock, UK_RWLOCK_WRITE_WAITERS);
+		/* If the acquire operation fails set the write waiters flag*/
+		ukarch_or(&rwl->rwlock, UK_RWLOCK_WRITE_WAITERS);
 
+		/* Wait for the unlock event */
 		uk_waitq_wait_event(&rwl->exclusive, _rw_can_write(rwl->rwlock));
 		v = rwl->rwlock;
 	}
@@ -130,7 +121,7 @@ void uk_rwlock_wlock(struct uk_rwlock *rwl)
 /* FIXME: lost wakeup problem 
  *			one solution: use deadline base waking up
  */
-static inline
+	static inline
 void uk_rwlock_runlock(struct uk_rwlock *rwl)
 {
 	uintptr_t v, setv;
@@ -143,9 +134,13 @@ void uk_rwlock_runlock(struct uk_rwlock *rwl)
 
 	for(;;) {
 
+		/* Decrement the reader count and unset the waiters*/
 		setv = (v - UK_RW_ONE_READER) & ~(UK_RWLOCK_WAITERS);
 
-		if(UK_RW_READERS(setv) == 0 && v & UK_RWLOCK_WAITERS) {
+		/* If there are waiters then select the appropriate queue
+		 * Since we are giving priority try to select writer's queue
+		 */
+		if(UK_RW_READERS(setv) == 0 && (v & UK_RWLOCK_WAITERS)) {
 			queue = &rwl->shared;
 			if(v & UK_RWLOCK_WRITE_WAITERS) {
 				setv |= (v & UK_RWLOCK_READ_WAITERS);
@@ -153,12 +148,14 @@ void uk_rwlock_runlock(struct uk_rwlock *rwl)
 			}
 		}
 
+		/* Try to set the lock */
 		if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv)
 			break;
 
 		v = rwl->rwlock;
 	}
 
+	/* wakeup the relevent queue */
 	uk_waitq_wake_up(queue);
 	return;
 }
@@ -176,7 +173,9 @@ void uk_rwlock_wunlock(struct uk_rwlock *rwl)
 	if((v & UK_RWLOCK_READ) || OWNER(v) != stackbottom)
 		return;
 
-	/* Handle recursion */
+	/* Handle recursion 
+	 * If the number of recursive writers are not zero then return
+	 */
 	if(ukarch_sub_fetch(&(rwl->write_recurse), 1) != 0)
 		return;
 
@@ -185,6 +184,8 @@ void uk_rwlock_wunlock(struct uk_rwlock *rwl)
 
 		setv = UK_RW_UNLOCK; 
 
+		/* Check if there are waiters, if yes select the appropriate queue
+		 */
 		if(v & UK_RWLOCK_WAITERS) {
 			queue = &rwl->shared;
 			if(v & UK_RWLOCK_WRITE_WAITERS) {
@@ -193,12 +194,14 @@ void uk_rwlock_wunlock(struct uk_rwlock *rwl)
 			}
 		}
 
+		/* Try to set the lock */
 		if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv)
 			break;
 
 		v = rwl->rwlock;
 	}
 
+	/* Wakeup the waiters */
 	uk_waitq_wake_up(queue);
 }
 
@@ -216,6 +219,8 @@ void uk_rwlock_upgrade(struct uk_rwlock *rwl)
 
 	for(;;) {
 
+		/* Try to set the owner and relevent waiter flags
+		 */
 		setv = stackbottom | (v & UK_RWLOCK_WAITERS);
 
 		if(_rw_can_upgrade(rwl->rwlock)
@@ -225,7 +230,8 @@ void uk_rwlock_upgrade(struct uk_rwlock *rwl)
 			break;
 		}
 
-		_rwlock_set_flag(&rwl->rwlock, UK_RWLOCK_WRITE_WAITERS);
+		/* If we cannot upgrade wait till readers count is 0 */
+		ukarch_or(&rwl->rwlock, UK_RWLOCK_WRITE_WAITERS);
 		uk_waitq_wait_event(&rwl->exclusive, _rw_can_write(rwl->rwlock));
 		v = rwl->rwlock;
 	}
@@ -242,11 +248,16 @@ void uk_rwlock_downgrade(struct uk_rwlock *rwl)
 	if((v & UK_RWLOCK_READ) || OWNER(v) != stackbottom)
 		return;
 
-	setv = (UK_RW_UNLOCK + UK_RW_ONE_READER) | (v & UK_RWLOCK_WRITE_WAITERS);
 
 	for(;;) {
+
+		/* Set only write waiter flags since we are waking up the reads */
+		setv = (UK_RW_UNLOCK + UK_RW_ONE_READER) | (v & UK_RWLOCK_WRITE_WAITERS);
+
 		if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv)
 			break;
+
+		v = rwl->rwlock;
 	}
 
 	uk_waitq_wake_up(&rwl->shared);
