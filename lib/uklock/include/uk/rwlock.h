@@ -1,11 +1,15 @@
 #ifndef __UK_RWLOCK_H__
 #define __UK_RWLOCK_H__
 
-/* Requirements:
- *	Owner field to support the recursive lock
- *	Read count
- *	Is reader or Is writer
- */
+#include <uk/config.h>
+
+#include <uk/essentials.h>
+#include <uk/arch/atomic.h>
+#include <stddef.h>
+#include <uk/assert.h>
+#include <uk/wait.h>
+#include <uk/wait_types.h>
+
 /* TODO: in future give spin as well as wait options to the user 
  */
 
@@ -26,13 +30,16 @@
 #define OWNER(x)		(x & ~FLAG_MASK)
 
 #define _rw_can_read(rwlock) \
-	rwlock & (UK_RWLOCK_READ | UK_RWLOCK_WRITE_WAITERS) == UK_RWLOCK_READ
+	(rwlock & (UK_RWLOCK_READ | UK_RWLOCK_WRITE_WAITERS)) == UK_RWLOCK_READ
 
-#define _rw_can_write(v) \
-	((v & ~(UK_RWLOCK_WAITERS)) == UK_RW_UNLOCK);
+#define _rw_can_write(rwlock) \
+	((rwlock & ~(UK_RWLOCK_WAITERS)) == UK_RW_UNLOCK)
 
-struct uk_rwlock __aligned(8) {
-	volatile uintptr_t rwlock;
+#define _rw_can_upgrade(rwlock) \
+	((rwlock & UK_RWLOCK_READ && UK_RW_READERS(rwlock)) == 1)
+
+struct __align(8) uk_rwlock {
+	uintptr_t rwlock;
 	unsigned int write_recurse;
 	struct uk_waitq shared;
 	struct uk_waitq exclusive;
@@ -42,6 +49,8 @@ void uk_rwlock_init(struct uk_rwlock *rwl);
 
 static inline
 void _rwlock_set_flag(uintptr_t *rwlock, uintptr_t flag) {
+
+	uintptr_t v, setv;
 
 	for(;;) {
 		v = *rwlock;
@@ -56,7 +65,7 @@ void _rwlock_set_flag(uintptr_t *rwlock, uintptr_t flag) {
 static inline 
 void uk_rwlock_rlock(struct uk_rwlock *rwl)
 {
-	uintptr_t v, setv, rwait;
+	uintptr_t v, setv;
 
 	v = rwl->rwlock;
 
@@ -64,7 +73,7 @@ void uk_rwlock_rlock(struct uk_rwlock *rwl)
 
 		while(_rw_can_read(v)) {
 			setv = v + UK_RW_ONE_READER;
-			if(ukarch_compare_exchange_sync(&rwl->lock, v, setv) == setv) {
+			if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv) {
 				break;
 			}
 		}
@@ -83,8 +92,8 @@ void uk_rwlock_rlock(struct uk_rwlock *rwl)
 static inline
 void uk_rwlock_wlock(struct uk_rwlock *rwl)
 {
-	uintptr_t v, setv, mask;
-	uintptr_t stackbottom = uk_get_stack_bottom();
+	uintptr_t v, setv, stackbottom;
+	stackbottom = uk_get_stack_bottom();
 
 	v = rwl->rwlock;
 
@@ -104,7 +113,7 @@ void uk_rwlock_wlock(struct uk_rwlock *rwl)
 		if(_rw_can_write(v)) {
 			setv = stackbottom | (v & UK_RWLOCK_WAITERS);
 			/* Try to set the owner field and flag mask except reader flag*/
-			if(ukarch_compare_exchange_sync(&rwl->lock, v, setv) == setv) {
+			if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv) {
 				ukarch_inc(&(rwl->write_recurse));
 				break;
 			}
@@ -157,9 +166,12 @@ void uk_rwlock_runlock(struct uk_rwlock *rwl)
 static inline
 void uk_rwlock_wunlock(struct uk_rwlock *rwl)
 {
-	uintptr_t v, stackbottom; 
+	uintptr_t v, setv, stackbottom; 
+	struct uk_waitq *queue;
+
 	v = rwl->rwlock;
 	stackbottom = uk_get_stack_bottom();
+	queue = NULL;
 
 	if((v & UK_RWLOCK_READ) || OWNER(v) != stackbottom)
 		return;
@@ -170,6 +182,7 @@ void uk_rwlock_wunlock(struct uk_rwlock *rwl)
 
 	/* All recusive locks have been released, time to unlock*/
 	for(;;) {
+
 		setv = UK_RW_UNLOCK; 
 
 		if(v & UK_RWLOCK_WAITERS) {
@@ -189,7 +202,55 @@ void uk_rwlock_wunlock(struct uk_rwlock *rwl)
 	uk_waitq_wake_up(queue);
 }
 
-static inline void uk_rwlock_upgrade(struct uk_rwlock *rwl);
-static inline void uk_rwlock_downgrade(struct uk_rwlock *rwl);
+
+static inline
+void uk_rwlock_upgrade(struct uk_rwlock *rwl)
+{
+	uintptr_t v, setv, stackbottom;
+	stackbottom = uk_get_stack_bottom();
+	v = rwl->rwlock;
+
+	/* If there are no readers then upgrade is invalid */
+	if(UK_RW_READERS(v) == 0)
+		return;
+
+	for(;;) {
+
+		setv = stackbottom | (v & UK_RWLOCK_WAITERS);
+
+		if(_rw_can_upgrade(rwl->rwlock)
+				&& ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv) {
+
+			ukarch_inc(&(rwl->write_recurse));
+			break;
+		}
+
+		_rwlock_set_flag(&rwl->rwlock, UK_RWLOCK_WRITE_WAITERS);
+		uk_waitq_wait_event(&rwl->exclusive, _rw_can_write(rwl->rwlock));
+		v = rwl->rwlock;
+	}
+}
+
+static inline
+void uk_rwlock_downgrade(struct uk_rwlock *rwl)
+{
+	uintptr_t v, setv, stackbottom;
+
+	stackbottom = uk_get_stack_bottom();
+	v = rwl->rwlock;
+
+	if((v & UK_RWLOCK_READ) || OWNER(v) != stackbottom)
+		return;
+
+	setv = (UK_RW_UNLOCK + UK_RW_ONE_READER) | (v & UK_RWLOCK_WRITE_WAITERS);
+
+	for(;;) {
+		if(ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv)
+			break;
+	}
+
+	uk_waitq_wake_up(&rwl->shared);
+	return;
+}
 
 #endif /* __UK_RWLOCK_H__ */

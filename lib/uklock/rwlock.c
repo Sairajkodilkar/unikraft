@@ -2,10 +2,10 @@
 
 void uk_rwlock_init(struct uk_rwlock *rwl)
 {
-	UK_ASSERT(rwl);
+	//UK_ASSERT(rwl);
 
-	rwl->rwlock = UK_RWLOCK_UNLOCK;
+	rwl->rwlock = UK_RW_UNLOCK;
 	rwl->write_recurse = 0;
-	uk_waitq_init(&shared);
-	uk_waitq_init(&exclusive);
+	uk_waitq_init(&rwl->shared);
+	uk_waitq_init(&rwl->exclusive);
 }
