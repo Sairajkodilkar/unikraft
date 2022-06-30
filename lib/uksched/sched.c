@@ -125,6 +125,10 @@ struct uk_sched *uk_sched_create(struct uk_alloc *a, size_t prv_size)
 
 	UK_ASSERT(a != NULL);
 
+	/* Sairaj:
+	 * Allocate uk_sched + sizeof(schedcoop)
+	 * So each schedcoop is at the end of the uk_sched
+	 */
 	sched = uk_malloc(a, sizeof(struct uk_sched) + prv_size);
 	if (sched == NULL) {
 		uk_pr_warn("Failed to allocate scheduler\n");

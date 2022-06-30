@@ -38,6 +38,8 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <errno.h>
+#include <uk/mutex.h>
+#include <uk/semaphore.h>
 
 #if CONFIG_LIBUKBOOT_INITBBUDDY
 #include <uk/allocbbuddy.h>
@@ -71,6 +73,8 @@
 #include <uk/sp.h>
 #endif
 #include "banner.h"
+#include <stdlib.h>
+#include <uk/schedcoop.h>
 
 int main(int argc, char *argv[]) __weak;
 
@@ -110,8 +114,8 @@ static void main_thread_func(void *arg)
 	uk_stack_chk_guard_setup();
 #endif
 
-	print_banner(stdout);
-	fflush(stdout);
+	//print_banner(stdout);
+	//fflush(stdout);
 
 	/*
 	 * Application
@@ -177,10 +181,42 @@ void ukplat_entry_argp(char *arg0, char *argb, __sz argb_len)
 	ukplat_entry(argc, argv);
 }
 
+#define __define_scheduler(x) \
+	struct uk_sched * s##x;\
+	 void __noreturn uk_sched_start##x() {\
+		uk_sched_start(s##x); \
+	 }
+
+__define_scheduler(1)
+__define_scheduler(2)
+__define_scheduler(3)
+
+void start_other_cpus(struct uk_alloc *a, struct thread_main_arg *tma)
+{
+	void *sp = NULL;
+	unsigned int num = 1;
+	__lcpuidx lcpuidx = 1;
+
+	struct uk_sched **scheds[4] = {NULL, &s1, &s2, &s3};
+	ukplat_lcpu_entry_t entry1[4] = {NULL, uk_sched_start1, uk_sched_start2, uk_sched_start3};
+
+	for(int i = 1; i < 4; i++) {
+		lcpuidx = i;
+		*(scheds[i]) = uk_schedcoop_init(a);
+		uk_sched_thread_create(*(scheds[i]), "main", NULL, main_thread_func, tma);
+		sp = (char *) malloc(4096);
+		ukplat_lcpu_start(&lcpuidx, &num, &sp, &entry1[i], 0);
+	}
+}
+
+struct uk_mutex m;
+struct uk_semaphore sm;
+
 /* defined in <uk/plat.h> */
 void ukplat_entry(int argc, char *argv[])
 {
 	struct thread_main_arg tma;
+	struct uk_sched *s = NULL;
 	int kern_args = 0;
 	int rc __maybe_unused = 0;
 #if CONFIG_LIBUKALLOC
@@ -190,19 +226,11 @@ void ukplat_entry(int argc, char *argv[])
 	struct ukplat_memregion_desc md;
 #endif
 #if CONFIG_LIBUKSCHED
-	struct uk_sched *s = NULL;
 	struct uk_thread *main_thread = NULL;
 #endif
 
 	uk_ctor_func_t *ctorfn;
 
-	uk_pr_info("Unikraft constructor table at %p - %p\n",
-		   &uk_ctortab_start[0], &uk_ctortab_end);
-	uk_ctortab_foreach(ctorfn, uk_ctortab_start, uk_ctortab_end) {
-		UK_ASSERT(*ctorfn);
-		uk_pr_debug("Call constructor: %p())...\n", *ctorfn);
-		(*ctorfn)();
-	}
 
 #ifdef CONFIG_LIBUKLIBPARAM
 	rc = (argc > 1) ? uk_libparam_parse(argv[0], argc - 1, &argv[1]) : 0;
@@ -222,12 +250,12 @@ void ukplat_entry(int argc, char *argv[])
 	ukplat_memregion_foreach(&md, UKPLAT_MEMRF_ALLOCATABLE) {
 #if CONFIG_UKPLAT_MEMRNAME
 		uk_pr_debug("Try memory region: %p - %p (flags: 0x%02x, name: %s)...\n",
-			    md.base, (void *)((size_t)md.base + md.len),
-			    md.flags, md.name);
+				md.base, (void *)((size_t)md.base + md.len),
+				md.flags, md.name);
 #else
 		uk_pr_debug("Try memory region: %p - %p (flags: 0x%02x)...\n",
-			    md.base, (void *)((size_t)md.base + md.len),
-			    md.flags);
+				md.base, (void *)((size_t)md.base + md.len),
+				md.flags);
 #endif
 
 		/* try to use memory region to initialize allocator
@@ -285,6 +313,10 @@ void ukplat_entry(int argc, char *argv[])
 	main_thread = uk_thread_create("main", main_thread_func, &tma);
 	if (unlikely(!main_thread))
 		UK_CRASH("Could not create main thread\n");
+
+	uk_mutex_init(&m);
+	uk_semaphore_init(&sm, 1);
+	start_other_cpus(a, &tma);
 	uk_sched_start(s);
 #else
 	/* Enable interrupts before starting the application */
