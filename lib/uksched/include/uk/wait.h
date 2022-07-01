@@ -75,7 +75,8 @@ void uk_waitq_remove(struct uk_waitq *wq,
 {
 	unsigned int irqf = uk_spin_lock_irqf(&(wq->sl));
 	if (entry->waiting) {
-		UK_STAILQ_REMOVE(&(wq->wait_list), entry, struct uk_waitq_entry, thread_list);
+		UK_STAILQ_REMOVE(&(wq->wait_list), entry,
+						struct uk_waitq_entry, thread_list);
 		entry->waiting = 0;
 	}
 	uk_spin_unlock_irqf(&(wq->sl), irqf);
