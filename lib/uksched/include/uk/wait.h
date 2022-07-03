@@ -175,7 +175,6 @@ void uk_waitq_wake_up(struct uk_waitq *wq)
 
 	unsigned int irqf = uk_spin_lock_irqf(&(wq->sl));
 	UK_STAILQ_FOREACH_SAFE(curr, &(wq->wait_list), thread_list, tmp) {
-		printf("Waking up the thread %s\n", curr->thread->name);
 		uk_thread_wake(curr->thread);
 	}
 	uk_spin_unlock_irqf(&(wq->sl), irqf);

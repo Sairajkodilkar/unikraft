@@ -77,13 +77,12 @@ static void schedcoop_schedule(struct uk_sched *s)
 		 * 10 seconds.
 		 */
 		__snsec now = ukplat_monotonic_clock();
-		__snsec min_wakeup_time = now + ukarch_time_sec_to_nsec(10);
+		__snsec min_wakeup_time = now + ukarch_time_sec_to_nsec(1);
 
 		/* wake some sleeping threads */
 		UK_TAILQ_FOREACH_SAFE(thread, &prv->sleeping_threads,
 				      thread_list, tmp) {
 
-			printf("Waking up sleeping threads\n");
 			if (thread->wakeup_time && thread->wakeup_time <= now)
 				uk_thread_wake(thread);
 
@@ -92,8 +91,8 @@ static void schedcoop_schedule(struct uk_sched *s)
 		}
 
 		next = UK_TAILQ_FIRST(&prv->thread_list);
-		if (next) {
-			UK_ASSERT(next != prev);
+		if (next && is_runnable(next) && !is_exited(next)) {
+			//UK_ASSERT(next != prev);
 			UK_ASSERT(is_runnable(next));
 			UK_ASSERT(!is_exited(next));
 			UK_TAILQ_REMOVE(&prv->thread_list, next,
@@ -115,10 +114,10 @@ static void schedcoop_schedule(struct uk_sched *s)
 		/* block until the next timeout expires, or for 10 secs,
 		 * whichever comes first
 		 */
-		ukplat_lcpu_halt_to(min_wakeup_time);
+		/* FIXME: Not waking up on non-bootstrap CPU */
+		//ukplat_lcpu_halt_to(min_wakeup_time);
 		/* handle pending events if any */
 		ukplat_lcpu_irqs_handle_pending();
-		printf("Scheduler is running\n");
 
 	} while (1);
 

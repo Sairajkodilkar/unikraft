@@ -239,14 +239,12 @@ void uk_thread_wake(struct uk_thread *thread)
 	unsigned long flags;
 
 	flags = ukplat_lcpu_save_irqf();
-	printf("Wakeup lock\n");
 	if (!is_runnable(thread)) {
 		uk_sched_thread_woken(thread->sched, thread);
 		thread->wakeup_time = 0LL;
 		set_runnable(thread);
 	}
 	ukplat_lcpu_restore_irqf(flags);
-	printf("Wakeup lock released\n");
 }
 
 void uk_thread_exit(struct uk_thread *thread)
