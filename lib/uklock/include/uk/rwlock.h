@@ -39,6 +39,8 @@
 #define _rw_can_upgrade(rwlock) \
 	((rwlock & UK_RWLOCK_READ) && UK_RW_READERS(rwlock) == 1)
 
+#define UK_RWLOCK_INITIALIZER { UK_RW_UNLOCK, 0, 0, 0 }
+
 struct __align(8) uk_rwlock {
 	uintptr_t rwlock;
 	unsigned int write_recurse;
@@ -71,6 +73,7 @@ void uk_rwlock_rlock(struct uk_rwlock *rwl)
 		/* Wait for the unlock event */
 		uk_waitq_wait_event(&rwl->shared, _rw_can_read(rwl->rwlock));
 	}
+
 	return;
 }
 
@@ -85,6 +88,7 @@ void uk_rwlock_wlock(struct uk_rwlock *rwl)
 	/* If the lock is not held by reader and owner of the lock is current
 	 * thread then simply increment the write recurse count
 	 */
+
 	if (!(v & UK_RWLOCK_READ) && OWNER(v) == stackbottom) {
 		ukarch_inc(&(rwl->write_recurse));
 		return;
@@ -113,6 +117,7 @@ void uk_rwlock_wlock(struct uk_rwlock *rwl)
 		/* Wait for the unlock event */
 		uk_waitq_wait_event(&rwl->exclusive, _rw_can_write(rwl->rwlock));
 	}
+
 	return;
 }
 
@@ -127,6 +132,7 @@ void uk_rwlock_runlock(struct uk_rwlock *rwl)
 	struct uk_waitq *queue = NULL;
 
 	v = rwl->rwlock;
+
 
 	if (!(v & UK_RWLOCK_READ) || UK_RW_READERS(v) == 0)
 		return;
@@ -155,6 +161,7 @@ void uk_rwlock_runlock(struct uk_rwlock *rwl)
 
 		v = rwl->rwlock;
 	}
+
 	/* wakeup the relevent queue */
 	if (queue)
 		uk_waitq_wake_up(queue);
@@ -197,12 +204,14 @@ void uk_rwlock_wunlock(struct uk_rwlock *rwl)
 		/* Try to set the lock */
 		if (ukarch_compare_exchange_sync(&rwl->rwlock, v, setv) == setv)
 			break;
+
 		v = rwl->rwlock;
 	}
 
 	/* Wakeup the waiters */
 	if (queue)
 		uk_waitq_wake_up(queue);
+
 	return;
 }
 
@@ -233,7 +242,7 @@ void uk_rwlock_upgrade(struct uk_rwlock *rwl)
 		}
 		/* If we cannot upgrade wait till readers count is 0 */
 		ukarch_or(&rwl->rwlock, UK_RWLOCK_WRITE_WAITERS);
-		uk_waitq_wait_event(&rwl->exclusive, _rw_can_write(rwl->rwlock));
+		uk_waitq_wait_event(&rwl->exclusive, _rw_can_upgrade(rwl->rwlock));
 	}
 	return;
 }
@@ -249,6 +258,8 @@ void uk_rwlock_downgrade(struct uk_rwlock *rwl)
 	if ((v & UK_RWLOCK_READ) || OWNER(v) != stackbottom)
 		return;
 
+	rwl->write_recurse = 0;
+
 	for (;;) {
 		/* Set only write waiter flags since we are waking up the reads */
 		setv = (UK_RW_UNLOCK + UK_RW_ONE_READER)
@@ -259,8 +270,8 @@ void uk_rwlock_downgrade(struct uk_rwlock *rwl)
 
 		v = rwl->rwlock;
 	}
+
 	uk_waitq_wake_up(&rwl->shared);
 	return;
 }
-
 #endif /* __UK_RWLOCK_H__ */
