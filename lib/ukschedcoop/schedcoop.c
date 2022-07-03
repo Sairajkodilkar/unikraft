@@ -83,6 +83,7 @@ static void schedcoop_schedule(struct uk_sched *s)
 		UK_TAILQ_FOREACH_SAFE(thread, &prv->sleeping_threads,
 				      thread_list, tmp) {
 
+			printf("Waking up sleeping threads\n");
 			if (thread->wakeup_time && thread->wakeup_time <= now)
 				uk_thread_wake(thread);
 
@@ -117,6 +118,7 @@ static void schedcoop_schedule(struct uk_sched *s)
 		ukplat_lcpu_halt_to(min_wakeup_time);
 		/* handle pending events if any */
 		ukplat_lcpu_irqs_handle_pending();
+		printf("Scheduler is running\n");
 
 	} while (1);
 

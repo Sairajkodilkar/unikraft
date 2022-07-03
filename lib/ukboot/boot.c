@@ -40,6 +40,7 @@
 #include <errno.h>
 #include <uk/mutex.h>
 #include <uk/semaphore.h>
+#include <uk/rwlock.h>
 
 #if CONFIG_LIBUKBOOT_INITBBUDDY
 #include <uk/allocbbuddy.h>
@@ -211,6 +212,7 @@ void start_other_cpus(struct uk_alloc *a, struct thread_main_arg *tma)
 
 struct uk_mutex m;
 struct uk_semaphore sm;
+struct uk_rwlock rwl;
 
 /* defined in <uk/plat.h> */
 void ukplat_entry(int argc, char *argv[])
@@ -316,6 +318,8 @@ void ukplat_entry(int argc, char *argv[])
 
 	uk_mutex_init(&m);
 	uk_semaphore_init(&sm, 1);
+	uk_rwlock_init(&rwl);
+
 	start_other_cpus(a, &tma);
 	uk_sched_start(s);
 #else
