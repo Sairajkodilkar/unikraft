@@ -52,17 +52,20 @@
 extern "C" {
 #endif
 
+#define UK_MUTEX_CONFIG_WRITE_RECURSE 0x01
+
 /*
  * Mutex that relies on a scheduler
  * uses wait queues for threads
  */
 struct uk_mutex {
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
 	int lock_count;
-#endif
+	uint8_t config_flags;
 	struct uk_thread *owner;
 	struct uk_waitq wait;
 };
+
+#define __IS_CONFIG_WRITE_RECURSE(flag)	(flag & UK_MUTEX_CONFIG_WRITE_RECURSE)
 
 /*
  * Mutex statistics for ukstore.
@@ -92,10 +95,13 @@ extern __spinlock              _uk_mutex_metrics_lock;
 #endif /* CONFIG_LIBUKLOCK_MUTEX_METRICS */
 
 #define	UK_MUTEX_INITIALIZER(name)				\
-	{ 0, NULL, __WAIT_QUEUE_INITIALIZER((name).wait) }
+	{ 0, 0, NULL, __WAIT_QUEUE_INITIALIZER((name).wait) }
 
-void uk_mutex_init(struct uk_mutex *m);
+void __uk_mutex_init(struct uk_mutex *m, uint8_t config_flags);
 void uk_mutex_get_metrics(struct uk_mutex_metrics *dst);
+
+#define uk_mutex_init(m) __uk_mutex_init(m, 0)
+#define uk_mutex_init_config(m, config_flags) __uk_mutex_init(m, config_flags)
 
 static inline void uk_mutex_lock(struct uk_mutex *m)
 {
@@ -106,14 +112,13 @@ static inline void uk_mutex_lock(struct uk_mutex *m)
 	current = uk_thread_current();
 
 	/* If the owner is a current thread, then we increment the lock count. */
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
-	if (unlikely(m->owner == current)) {
+	if (__IS_CONFIG_WRITE_RECURSE(m->config_flags)
+			&& unlikely(m->owner == current)) {
 		ukarch_inc(&(m->lock_count));
 		return;
+	} else {
+		UK_ASSERT(m->owner != current);
 	}
-#else
-	UK_ASSERT(m->owner != current);
-#endif
 
 
 	for (;;) {
@@ -124,9 +129,7 @@ static inline void uk_mutex_lock(struct uk_mutex *m)
 		 * lock count.
 		 */
 		if (ukarch_compare_exchange_sync(&m->owner, 0, current) == current) {
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
 			ukarch_inc(&(m->lock_count));
-#endif
 			break;
 		}
 	}
@@ -150,10 +153,8 @@ static inline int uk_mutex_trylock(struct uk_mutex *m)
 
 	current = uk_thread_current();
 
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
-	if (m->owner == current)
+	if (__IS_CONFIG_WRITE_RECURSE(m->config_flags) && m->owner == current)
 		ret = 1;
-#endif
 	if (!ret && ukarch_compare_exchange_sync(&m->owner, 0, current) == current)
 		ret = 1;
 
@@ -164,10 +165,8 @@ static inline int uk_mutex_trylock(struct uk_mutex *m)
 	_uk_mutex_metrics.total_failed_trylocks += !ret;
 #endif /* CONFIG_LIBUKLOCK_MUTEX_METRICS */
 
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
 	if (ret)
 		ukarch_inc(&(m->lock_count));
-#endif
 
 	return ret;
 }
@@ -187,18 +186,12 @@ static inline void uk_mutex_unlock(struct uk_mutex *m)
 	ukarch_spin_lock(&_uk_mutex_metrics_lock);
 #endif /* CONFIG_LIBUKLOCK_MUTEX_METRICS */
 
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
 	UK_ASSERT(m->lock_count > 0);
-#endif
 
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
 	if (ukarch_sub_fetch(&(m->lock_count), 1) == 0) {
-#endif
 		m->owner = NULL;
 		uk_waitq_wake_up(&m->wait);
-#ifdef CONFIG_LIBUKLOCK_MUTEX_RECURSE
 	}
-#endif
 
 #ifdef CONFIG_LIBUKLOCK_MUTEX_METRICS
 	_uk_mutex_metrics.active_locked   -= (m->lock_count == 0);
