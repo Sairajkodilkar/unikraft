@@ -42,6 +42,7 @@
 #include <uk/wait.h>
 #include <uk/wait_types.h>
 #include <uk/plat/time.h>
+#include <uk/lock-common.h>
 
 #ifdef CONFIG_LIBUKLOCK_MUTEX_METRICS
 #include <uk/plat/spinlock.h>
@@ -211,6 +212,12 @@ static inline void uk_mutex_unlock(struct uk_mutex *m)
 	uk_waitq_wait_event_deadline_locked(wq, condition, deadline, \
 					    uk_mutex_lock, uk_mutex_unlock, \
 					    mutex)
+
+_LOCK_IRQF(struct uk_mutex *, uk_mutex_lock)
+
+_TRYLOCK_IRQF(struct uk_mutex *, uk_mutex_trylock)
+
+_UNLOCK_IRQF(struct uk_mutex *, uk_mutex_unlock)
 
 #ifdef __cplusplus
 }
