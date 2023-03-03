@@ -49,6 +49,8 @@
 extern "C" {
 #endif
 
+#undef CONFIG_LIBUKDEBUG
+
 struct uk_sched;
 
 static inline struct uk_sched *uk_sched_current(void)

@@ -34,7 +34,7 @@ uk_thread_release
 uk_thread_block_timeout
 uk_thread_block
 uk_thread_wake
-__uk_sched_thread_current
+__cpu_current_thread
 uk_syscall_e_sched_yield
 uk_syscall_r_sched_yield
 sched_yield

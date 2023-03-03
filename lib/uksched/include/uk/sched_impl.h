@@ -84,11 +84,11 @@ unsigned int uk_sched_thread_gc(struct uk_sched *sched);
 static inline
 void uk_sched_thread_switch(struct uk_thread *next)
 {
-	struct uk_thread *prev = __uk_sched_thread_current;
+	struct uk_thread *prev = uk_thread_current();
 
 	UK_ASSERT(prev);
 
-	__uk_sched_thread_current = next;
+	uk_thread_current_set(next);
 	prev->tlsp = ukplat_tlsp_get();
 	if (prev->ectx)
 		ukarch_ectx_store(prev->ectx);

@@ -89,12 +89,20 @@ UK_TAILQ_HEAD(uk_thread_list, struct uk_thread);
 	uk_sched_thread_exit()
 
 /* managed by sched.c */
-extern struct uk_thread *__uk_sched_thread_current;
+extern struct uk_thread *__cpu_current_thread[CONFIG_UKPLAT_LCPU_MAXCOUNT];
 
 static inline
 struct uk_thread *uk_thread_current(void)
 {
-	return __uk_sched_thread_current;
+	__lcpuidx lcpuidx = ukplat_lcpu_idx();
+	return __cpu_current_thread[lcpuidx];
+}
+
+static inline
+void uk_thread_current_set(struct uk_thread *t)
+{
+	__lcpuidx lcpuidx = ukplat_lcpu_idx();
+	__cpu_current_thread[lcpuidx] = t;
 }
 
 /*

@@ -44,7 +44,7 @@
 struct uk_sched *uk_sched_head;
 
 /* FIXME: Define per CPU (CPU-local variable declaration needed) */
-struct uk_thread *__uk_sched_thread_current;
+struct uk_thread *__cpu_current_thread[CONFIG_UKPLAT_LCPU_MAXCOUNT];
 
 int uk_sched_register(struct uk_sched *s)
 {
@@ -220,7 +220,7 @@ int uk_sched_start(struct uk_sched *s)
 	uk_thread_set_runnable(main_thread);
 
 	/* Set main_thread as current scheduled thread */
-	__uk_sched_thread_current = main_thread;
+	uk_thread_current_set(main_thread);
 
 	/* Add main to the scheduler's thread list */
 	UK_TAILQ_INSERT_TAIL(&s->thread_list, main_thread, thread_list);
@@ -235,7 +235,7 @@ int uk_sched_start(struct uk_sched *s)
 	return 0;
 
 err_unset_thread_current:
-	__uk_sched_thread_current = NULL;
+	uk_thread_current_set(NULL);
 	uk_thread_release(main_thread);
 err_out:
 	return ret;
