@@ -45,4 +45,11 @@ if LIBUKLOCK
 		depends on LIBUKLOCK_MUTEX
 		help
 			Enable recursive locking for mutex
+
+	config LIBUKLOCK_RWLOCK
+		bool "Reader-Writer lock"
+		select LIBUKSCHED
+		default y
+		help
+			Enable reader-writer based synchronization
 endif
